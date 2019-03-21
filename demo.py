@@ -1,6 +1,6 @@
 # from datetime import datetime as dt, timedelta
 import pandas as pd
-import load_forecast.loadForecast as lf
+import loadForecast as lf
 
 f = 'data/NCENT.csv'
 df = pd.read_csv(f)
