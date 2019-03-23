@@ -34,49 +34,6 @@ def add_noise(m, std):
 
 
 def make_useful_df(df, noise=2.5, hours_prior=24):
-    """
-    Turn a dataframe of datetime and load data into a dataframe useful
-    for machine learning. Normalize values and turn
-    Features are placed into r_df (return dataframe), creates the following columns
-
-    YEARS SINCE 2000
-
-    LOAD AT THIS TIME DAY BEFORE
-
-    HOUR OF DAY
-    - is12AM (0, 1)
-    - is1AM (0, 1)
-    ...
-    - is11PM (0, 1)
-
-    DAYS OF THE WEEK
-    - isSunday (0, 1)
-    - isMonday (0, 1)
-    ...
-    - isSaturday (0, 1)
-
-    MONTHS OF THE YEAR
-    - isJanuary (0, 1)
-    - isFebruary (0, 1)
-    ...
-    - isDecember (0, 1)
-
-    TEMPERATURE
-    - Celcius (normalized from -1 to 1)
-
-    PREVIOUS DAY'S LOAD
-    - 12AM of day previous (normalized from -1 to 1)
-    - 1AM of day previous (normalized from -1 to 1)
-    ...
-    - 11PM of day previous (normalized from -1 to 1)
-
-    HOLIDAYS (the nerc6 holidays)
-    - isNewYears (0, 1)
-    - isMemorialDay (0, 1)
-    ...
-    - is Christmas (0, 1)
-
-    """
 
     def _chunks(l, n):
         return [l[i: i + n] for i in range(0, len(l), n)]
@@ -108,7 +65,7 @@ def make_useful_df(df, noise=2.5, hours_prior=24):
 
     # create day of week vector
     r_df["day"] = df["dates"].dt.dayofweek  # 0 is Monday.
-    w = ["S", "M", "T", "W", "R", "F", "A"]
+    w = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
     for i, d in enumerate(w):
         r_df[d] = (r_df["day"] == i).astype(int)
 
@@ -120,7 +77,7 @@ def make_useful_df(df, noise=2.5, hours_prior=24):
 
     # create month vector
     r_df["month"] = df["dates"].dt.month
-    y = [("m" + str(i)) for i in range(12)]
+    y = [("m" + str(i)) for i in range(1, 12+1)]
     for i, m in enumerate(y):
         r_df[m] = (r_df["month"] == i).astype(int)
 

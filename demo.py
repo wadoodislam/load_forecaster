@@ -1,12 +1,13 @@
 # from datetime import datetime as dt, timedelta
 import pandas as pd
 import loadForecast as lf
+import sm_forcaster as sm
 
 f = 'data/NCENT.csv'
 df = pd.read_csv(f)
-all_X = lf.makeUsefulDf(df)
+all_X = sm.make_useful_df(df)
 all_y = df['load']
-predictions, accuracy = lf.neural_net_predictions(all_X, all_y)
+predictions, accuracy = sm.neural_net_predictions(all_X, all_y)
 print('Percent accuracy (MAPE). Train: {}.  Test: {}'.format(100-accuracy['train'], 100-accuracy['test']))
 #
 # df_r = pd.DataFrame()
