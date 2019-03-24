@@ -2,30 +2,10 @@
 Neural net implementation of electric load forecasting.
 """
 
-import pickle
 import numpy as np
 import pandas as pd
-from datetime import datetime as dt
+from datetime import datetime
 from scipy.stats import zscore
-
-# NERC6 holidays with inconsistent dates. Created with python holidays package
-# years 1990 - 2024
-with open('holidays.pickle', 'rb') as f:
-    nerc6 = pickle.load(f)
-
-
-def isHoliday(holiday, df):
-    # New years, memorial, independence, labor day, Thanksgiving, Christmas
-    m1 = None
-    if holiday == "New Year's Day":
-        m1 = (df["dates"].dt.month == 1) & (df["dates"].dt.day == 1)
-    if holiday == "Independence Day":
-        m1 = (df["dates"].dt.month == 7) & (df["dates"].dt.day == 4)
-    if holiday == "Christmas Day":
-        m1 = (df["dates"].dt.month == 12) & (df["dates"].dt.day == 25)
-    m1 = df["dates"].dt.date.isin(nerc6[holiday]) if m1 is None else m1
-    m2 = df["dates"].dt.date.isin(nerc6.get(holiday + " (Observed)", []))
-    return m1 | m2
 
 
 def add_noise(m, std):
@@ -33,85 +13,56 @@ def add_noise(m, std):
     return m + noise
 
 
-def make_useful_df(df, noise=2.5, hours_prior=24):
-
-    def _chunks(l, n):
-        return [l[i: i + n] for i in range(0, len(l), n)]
-
-    df['dates'] = df.apply(
-        lambda x: dt(
-            int(x['year']),
-            int(x['month']),
-            int(x['day']),
-            int(x['hour'])),
-        axis=1
-    )
-
-    r_df = pd.DataFrame()
-    r_df["load_n"] = zscore(df["load"])
-    r_df["years_n"] = zscore(df["dates"].dt.year)
-
-    # fix outliers
-    temp = df["tempc"].replace([-9999], np.nan)
-    temp.ffill(inplace=True)
-    # day-before predictions
-    temp_noise = add_noise(temp, noise)
-    r_df["temp_n"] = zscore(temp_noise)
-    r_df['temp_n^2'] = r_df["temp_n"] ** 2
-
-    # add the value of the load 24hrs before
-    r_df["load_prev_n"] = r_df["load_n"].shift(hours_prior)
-    r_df["load_prev_n"].bfill(inplace=True)
-
-    # create day of week vector
-    r_df["day"] = df["dates"].dt.dayofweek  # 0 is Monday.
-    w = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
-    for i, d in enumerate(w):
-        r_df[d] = (r_df["day"] == i).astype(int)
+def make_useful_df(data, noise=2.5, hours_prior=24):
+    result_df = pd.DataFrame()
+    result_df['dates'] = data.apply(lambda x: datetime(
+                                        int(x['year']),
+                                        int(x['month']),
+                                        int(x['day']),
+                                        int(x['hour'])),
+                                    axis=1)
+    # create day of week vector: 0 is Monday.
+    day_labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    for index, day in enumerate(day_labels):
+        result_df[day] = (result_df["dates"].dt.dayofweek == index).astype(int)
 
     # create hour of day vector
-    r_df["hour"] = df["dates"].dt.hour
-    d = [("h" + str(i)) for i in range(24)]
-    for i, h in enumerate(d):
-        r_df[h] = (r_df["hour"] == i).astype(int)
+    hour_labels = [("h" + str(i)) for i in range(24)]
+    for index, hour in enumerate(hour_labels):
+        result_df[hour] = (result_df["dates"].dt.hour == index).astype(int)
 
     # create month vector
-    r_df["month"] = df["dates"].dt.month
-    y = [("m" + str(i)) for i in range(1, 12+1)]
-    for i, m in enumerate(y):
-        r_df[m] = (r_df["month"] == i).astype(int)
+    month_labels = [("m" + str(i)) for i in range(1, 12 + 1)]
+    for index, month in enumerate(month_labels):
+        result_df[month] = (result_df["dates"].dt.month == index).astype(int)
 
-    # create 'load day before' vector
-    n = np.array([val for val in _chunks(list(r_df["load_n"]), 24) for _ in range(24)])
-    l = ["l" + str(i) for i in range(24)]
-    for i, s in enumerate(l):
-        r_df[s] = n[:, i]
+    temperature = data["tempc"].replace([-9999], np.nan)
+    temperature.ffill(inplace=True)
 
-    # create holiday booleans
-    r_df["isNewYears"] = isHoliday("New Year's Day", df)
-    r_df["isMemorialDay"] = isHoliday("Memorial Day", df)
-    r_df["isIndependenceDay"] = isHoliday("Independence Day", df)
-    r_df["isLaborDay"] = isHoliday("Labor Day", df)
-    r_df["isThanksgiving"] = isHoliday("Thanksgiving", df)
-    r_df["isChristmas"] = isHoliday("Christmas Day", df)
+    # day-before predictions temperature
+    temperature_predictions = add_noise(temperature, noise)
+    result_df["temp_n"] = zscore(temperature_predictions)
+    result_df['temp_n^2'] = result_df["temp_n"] ** 2
 
-    m = r_df.drop(["month", "hour", "day", "load_n"], axis=1)
-    df = df.drop(['dates'], axis=1)
+    result_df["load_n"] = zscore(data["load"])
+    result_df["years_n"] = zscore(result_df["dates"].dt.year)
 
-    return m
+    # add the value of the load 24hrs before
+    result_df["load_prev_n"] = result_df["load_n"].shift(hours_prior)
+    result_df["load_prev_n"].bfill(inplace=True)
+
+    return result_df.drop(["dates", "load_n"], axis=1)
 
 
-def neural_net_predictions(all_X, all_y, EPOCHS=10):
+def neural_net_model(train_x, train_y, EPOCHS=10):
     import tensorflow as tf
 
-    x_train, y_train = all_X[:-8760], all_y[:-8760]
-
     model = tf.keras.Sequential([
-        tf.keras.layers.Dense(all_X.shape[1], activation=tf.nn.relu, input_shape=[len(x_train.keys())]),
-        tf.keras.layers.Dense(all_X.shape[1], activation=tf.nn.relu),
-        tf.keras.layers.Dense(all_X.shape[1], activation=tf.nn.relu),
-        tf.keras.layers.Dense(all_X.shape[1], activation=tf.nn.relu),
-        tf.keras.layers.Dense(all_X.shape[1], activation=tf.nn.relu),
+        tf.keras.layers.Dense(train_x.shape[1], activation=tf.nn.relu, input_shape=[len(train_x.keys())]),
+        tf.keras.layers.Dense(train_x.shape[1], activation=tf.nn.relu),
+        tf.keras.layers.Dense(train_x.shape[1], activation=tf.nn.relu),
+        tf.keras.layers.Dense(train_x.shape[1], activation=tf.nn.relu),
+        tf.keras.layers.Dense(train_x.shape[1], activation=tf.nn.relu),
         tf.keras.layers.Dense(1)
     ])
 
@@ -126,23 +77,18 @@ def neural_net_predictions(all_X, all_y, EPOCHS=10):
     early_stop = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=10)
 
     history = model.fit(
-        x_train,
-        y_train,
+        train_x,
+        train_y,
         epochs=EPOCHS,
         validation_split=0.2,
         verbose=0,
         callbacks=[early_stop],
     )
 
-    def MAPE(predictions, answers):
-        assert len(predictions) == len(answers)
-        return sum([abs(x - y) / (y + 1e-5) for x, y in zip(predictions, answers)]) / len(answers) * 100
+    return model
 
-    predictions = [float(f) for f in model.predict(all_X[-8760:])]
-    train = [float(f) for f in model.predict(all_X[:-8760])]
-    accuracy = {
-        'test': MAPE(predictions, all_y[-8760:]),
-        'train': MAPE(train, all_y[:-8760])
-    }
 
-    return [float(f) for f in model.predict(all_X[-8760:])], accuracy
+def MAPE(predictions, answers):
+    assert len(predictions) == len(answers)
+    return sum([abs(x - y) / (y + 1e-5) for x, y in zip(predictions, answers)]) / len(answers) * 100
+
